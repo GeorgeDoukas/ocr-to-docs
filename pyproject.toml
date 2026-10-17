@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ocr-to-docs"
+version = "0.1.0"
+description = "Local multilingual document OCR with searchable PDF, DOCX, and Markdown output"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { file = "LICENSE" }
+dependencies = [
+    "paddleocr[doc-parser]>=3.6.0,<4",
+    "paddlepaddle>=3.2.0,<4",
+    "pillow>=11,<13",
+    "pymupdf>=1.26,<2",
+    "pymupdf-fonts>=1.0.5,<2",
+    "python-docx>=1.2,<2",
+]
+
+[project.scripts]
+ocr-to-docs = "ocr_to_docs.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<10",
+    "ruff>=0.14,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ocr_to_docs"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [".cursor"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.format]
+quote-style = "double"
