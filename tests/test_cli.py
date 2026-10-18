@@ -1,9 +1,10 @@
 from pathlib import Path
 
 import pytest
+from docx import Document as WordDocument
 from PIL import Image
 
-from ocr_to_docs.cli import default_output, process
+from ocr_to_docs.cli import build_argument_parser, default_output, process
 from ocr_to_docs.models import Block, BlockType, Document
 
 
@@ -28,6 +29,28 @@ def test_default_pdf_output_does_not_overwrite_input() -> None:
     assert default_output(Path("scan.pdf"), "pdf") == Path("scan.ocr.pdf")
 
 
+def test_process_combines_a_folder_into_one_word_document(tmp_path: Path) -> None:
+    folder = tmp_path / "document-1-files"
+    folder.mkdir()
+    Image.new("RGB", (10, 10), "red").save(folder / "02.png")
+    Image.new("RGB", (10, 10), "blue").save(folder / "01.png")
+
+    class EveryPage:
+        def parse(self, document: Document) -> Document:
+            for page in document.pages:
+                page.blocks = [Block(BlockType.TEXT, f"page {page.number}")]
+            return document
+
+    output = tmp_path / "doc_for_edit.docx"
+    process(folder, output, "docx", parser=EveryPage())
+
+    word = WordDocument(output)
+    assert [paragraph.text for paragraph in word.paragraphs if paragraph.text] == [
+        "page 1",
+        "page 2",
+    ]
+
+
 @pytest.mark.parametrize("output_format", ["md", "docx", "pdf"])
 def test_process_never_overwrites_its_input(tmp_path: Path, output_format: str) -> None:
     source = tmp_path / "source.png"
@@ -35,3 +58,13 @@ def test_process_never_overwrites_its_input(tmp_path: Path, output_format: str) 
 
     with pytest.raises(ValueError, match="must differ"):
         process(source, source, output_format, parser=FakeParser())
+
+
+def test_cli_defaults_vlm_to_lmstudio() -> None:
+    arguments = build_argument_parser().parse_args(["note.png"])
+    assert arguments.vlm == "lmstudio"
+
+
+def test_cli_accepts_local_vlm() -> None:
+    arguments = build_argument_parser().parse_args(["note.png", "--vlm", "local"])
+    assert arguments.vlm == "local"

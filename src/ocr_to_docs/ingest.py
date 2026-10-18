@@ -1,3 +1,5 @@
+import re
+from collections.abc import Sequence
 from pathlib import Path
 
 import pymupdf
@@ -9,30 +11,67 @@ SUPPORTED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 
 def ingest(source: Path, work_dir: Path) -> Document:
-    source = source.resolve()
-    if not source.is_file():
-        raise FileNotFoundError(f"Input file does not exist: {source}")
-    if source.suffix.lower() not in SUPPORTED_EXTENSIONS:
-        supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
-        raise ValueError(f"Unsupported input type {source.suffix!r}; expected one of: {supported}")
+    return ingest_inputs([source], work_dir)
 
+
+def ingest_inputs(sources: Sequence[Path], work_dir: Path) -> Document:
+    files = collect_inputs(sources)
     work_dir.mkdir(parents=True, exist_ok=True)
-    pages = (
-        _ingest_pdf(source, work_dir)
-        if source.suffix.lower() == ".pdf"
-        else _ingest_images(source, work_dir)
-    )
-    return Document(source=str(source), pages=pages)
+    pages: list[Page] = []
+    for index, source in enumerate(files, start=1):
+        if source.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            supported = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+            message = f"Unsupported input type {source.suffix!r}; expected one of: {supported}"
+            raise ValueError(message)
+        prefix = f"input-{index:04d}"
+        batch = (
+            _ingest_pdf(source, work_dir, prefix)
+            if source.suffix.lower() == ".pdf"
+            else _ingest_images(source, work_dir, prefix)
+        )
+        pages.extend(batch)
+    for number, page in enumerate(pages, start=1):
+        page.number = number
+    label = files[0] if len(sources) == 1 and sources[0].is_file() else sources[0]
+    return Document(source=str(label.resolve()), pages=pages)
 
 
-def _ingest_images(source: Path, work_dir: Path) -> list[Page]:
+def collect_inputs(sources: Sequence[Path]) -> list[Path]:
+    files: list[Path] = []
+    for source in sources:
+        if not source.exists():
+            raise FileNotFoundError(f"Input does not exist: {source}")
+        if source.is_dir():
+            found = sorted(
+                (
+                    path
+                    for path in source.iterdir()
+                    if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS
+                ),
+                key=_natural_key,
+            )
+            if not found:
+                raise ValueError(f"No PDF or image files found in {source}")
+            files.extend(found)
+        elif source.is_file():
+            files.append(source)
+        else:
+            raise ValueError(f"Input is neither a file nor a folder: {source}")
+    return files
+
+
+def _natural_key(path: Path) -> list[int | str]:
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", path.name)]
+
+
+def _ingest_images(source: Path, work_dir: Path, prefix: str) -> list[Page]:
     pages = []
     with Image.open(source) as image:
         dpi_x, dpi_y = _valid_dpi(image.info.get("dpi", (72, 72)))
         if image.getexif().get(274, 1) in {5, 6, 7, 8}:
             dpi_x, dpi_y = dpi_y, dpi_x
         for index, frame in enumerate(ImageSequence.Iterator(image), start=1):
-            output = work_dir / f"page-{index}.png"
+            output = work_dir / f"{prefix}-page-{index}.png"
             normalized = ImageOps.exif_transpose(frame.copy()).convert("RGB")
             normalized.save(output)
             width, height = normalized.size
@@ -49,7 +88,7 @@ def _ingest_images(source: Path, work_dir: Path) -> list[Page]:
     return pages
 
 
-def _ingest_pdf(source: Path, work_dir: Path) -> list[Page]:
+def _ingest_pdf(source: Path, work_dir: Path, prefix: str) -> list[Page]:
     pages: list[Page] = []
     with pymupdf.open(source) as pdf:
         for index, pdf_page in enumerate(pdf):
@@ -87,7 +126,7 @@ def _ingest_pdf(source: Path, work_dir: Path) -> list[Page]:
                 )
                 continue
 
-            output = work_dir / f"page-{index + 1}.png"
+            output = work_dir / f"{prefix}-page-{index + 1}.png"
             pixmap = pdf_page.get_pixmap(dpi=200, alpha=False)
             pixmap.save(output)
             pages.append(

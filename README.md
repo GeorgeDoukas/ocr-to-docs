@@ -8,6 +8,7 @@ It uses PaddleOCR-VL-1.6-0.9B for multilingual document parsing.
 
 - Processes documents locally without uploading their contents.
 - Accepts PDF, PNG, JPEG, and TIFF files.
+- Combines several images, or every supported file in a folder, into one document.
 - Recognizes multilingual text, including English and Greek.
 - Detects headings, reading order, tables, formulas, images, and charts.
 - Preserves native PDF text instead of OCR-processing it again.
@@ -15,7 +16,7 @@ It uses PaddleOCR-VL-1.6-0.9B for multilingual document parsing.
 - Converts detected tables into Markdown or native Word tables.
 - Preserves chart images and includes PaddleOCR's extracted chart content.
 - Creates searchable PDFs by placing an invisible Unicode text layer over each scan.
-- Reports page count and total CPU processing time.
+- Reports each page as it starts and finishes, plus an elapsed-time update every 15 seconds during recognition.
 
 ## Requirements
 
@@ -51,10 +52,33 @@ Word:
 uv run ocr-to-docs .\notes.jpg --format docx --output .\notes.docx
 ```
 
+Several photos, in the order given:
+
+```powershell
+uv run ocr-to-docs .\01.jpg .\02.jpg .\03.png --format docx --output .\doc_for_edit.docx
+```
+
+A folder of photos. Files are ordered by name, so `page-2` comes before `page-10`:
+
+```powershell
+uv run ocr-to-docs .\document-1-files --format docx --output .\doc_for_edit.docx
+```
+
+Only PDF, PNG, JPEG, and TIFF files directly inside the folder are included. Name the photos in page order before running the command. The same inputs work with `--format pdf` or `--format md`.
+
 Searchable PDF with a fixed CPU thread count:
 
 ```powershell
 uv run ocr-to-docs .\scan.tiff --format pdf --cpu-threads 8
+```
+
+By default, layout runs locally and VLM recognition goes through LM Studio's
+OpenAI-compatible server at `http://127.0.0.1:1234/v1` with model
+`paddleocr-vl-1.6`. Load that model in LM Studio, start the local server, then
+run the CLI as usual. To force the old in-process CPU VLM instead:
+
+```powershell
+uv run ocr-to-docs .\scan.pdf --format md --vlm local
 ```
 
 When `--output` is omitted, the command writes `<input-name>.ocr.<format>` next
@@ -83,9 +107,10 @@ and copied while page appearance remains unchanged.
 ## Model and language notes
 
 The default parser is `PaddleOCR-VL-1.6-0.9B`, selected through PaddleOCR's
-official page-level `v1.6` pipeline. Chart recognition, image-block OCR,
-orientation classification, unwarping, and Markdown block formatting are
-enabled.
+official page-level `v1.6` pipeline. Layout analysis still runs locally;
+VLM recognition defaults to LM Studio (`--vlm lmstudio`). Chart recognition,
+image-block OCR, orientation classification, unwarping, and Markdown block
+formatting are enabled.
 
 Paddle describes the model as multilingual, but does not publish a dedicated
 Greek handwriting score for version 1.6. Accuracy depends on handwriting,
@@ -118,7 +143,8 @@ CPU.
 
 ## Known limitations
 
-- CPU inference with a 0.9B VLM is slow, especially for multi-page scans.
+- Local `--vlm local` CPU inference with a 0.9B VLM is slow, especially for
+  multi-page scans. Prefer the default LM Studio backend when available.
 - Exact visual reconstruction is only provided by searchable PDF, not DOCX.
 - Tables with unusual spanning cells may require manual correction.
 - Handwriting quality varies significantly by writer.

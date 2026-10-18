@@ -4,7 +4,7 @@ import pymupdf
 import pytest
 from PIL import Image
 
-from ocr_to_docs.ingest import ingest
+from ocr_to_docs.ingest import ingest, ingest_inputs
 
 
 def test_ingest_uses_native_pdf_text_without_rendering(tmp_path: Path) -> None:
@@ -80,6 +80,38 @@ def test_ingest_keeps_native_text_on_page_with_regular_figure(tmp_path: Path) ->
 
     assert document.pages[0].native_text is True
     assert "substantial native paragraph" in document.plain_text
+
+
+def test_ingest_combines_a_folder_in_numeric_filename_order(tmp_path: Path) -> None:
+    folder = tmp_path / "document-1-files"
+    folder.mkdir()
+    Image.new("RGB", (40, 10), "white").save(folder / "page-10.png")
+    Image.new("RGB", (30, 10), "white").save(folder / "page-2.jpg")
+    (folder / "notes.txt").write_text("skip", encoding="utf-8")
+
+    document = ingest(folder, tmp_path / "work")
+
+    assert [page.width for page in document.pages] == [30, 40]
+    assert [page.number for page in document.pages] == [1, 2]
+
+
+def test_ingest_inputs_keep_explicit_file_order(tmp_path: Path) -> None:
+    later = tmp_path / "page-2.png"
+    earlier = tmp_path / "page-10.png"
+    Image.new("RGB", (30, 10), "white").save(later)
+    Image.new("RGB", (40, 10), "white").save(earlier)
+
+    document = ingest_inputs([earlier, later], tmp_path / "work")
+
+    assert [page.width for page in document.pages] == [40, 30]
+
+
+def test_ingest_rejects_a_folder_without_documents(tmp_path: Path) -> None:
+    folder = tmp_path / "empty"
+    folder.mkdir()
+
+    with pytest.raises(ValueError, match="No PDF or image"):
+        ingest(folder, tmp_path / "work")
 
 
 def test_ingest_swaps_anisotropic_dpi_when_exif_rotates_image(tmp_path: Path) -> None:
